@@ -381,3 +381,8 @@ dialog.sheet::backdrop { background: rgba(20, 20, 19, .45); }
 /* app feel: no text selection or long-press menus on chrome; card text stays selectable */
 .lib-head, .r-head, .r-foot, .r-progress, .set-row, .seg, .sheet-head, .meta-row, .list-count, .keys { -webkit-user-select: none; user-select: none; }
 .lib-scroll, .list, .sheet-body { overscroll-behavior: contain; }
+
+/* iOS 26 home-screen apps draw a blurred scroll-edge strip under the status bar; keep header text below it */
+@media (max-width: 959px) {
+  html.standalone { --sat: calc(env(safe-area-inset-top, 0px) + 14px); }
+}

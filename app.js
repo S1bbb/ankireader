@@ -1235,6 +1235,19 @@ a { color: inherit; }
   }
   window.addEventListener('hashchange', route);
 
+  // iOS still rubber-bands the whole web view on drags over non-scrolling areas:
+  // let a touch move only when it started inside something that can actually scroll
+  let touchCanScroll = false;
+  const canScroll = (n) => {
+    if (n.nodeType !== 1 || n === document.body || n === document.documentElement) return false;
+    const cs = getComputedStyle(n);
+    return (/(auto|scroll)/.test(cs.overflowY) && n.scrollHeight > n.clientHeight + 1) ||
+      (/(auto|scroll)/.test(cs.overflowX) && n.scrollWidth > n.clientWidth + 1);
+  };
+  document.addEventListener('touchstart', (e) => {
+    touchCanScroll = e.composedPath().some((n) => n.nodeType === 1 && (canScroll(n) || /^(INPUT|TEXTAREA)$/.test(n.tagName)));
+  }, { passive: true });
+  document.addEventListener('touchmove', (e) => { if (e.touches.length > 1 || !touchCanScroll) e.preventDefault(); }, { passive: false });
   // no pinch / double-tap page zoom: it is an app shell, not a document
   document.addEventListener('gesturestart', (e) => e.preventDefault());
   document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
@@ -1244,6 +1257,7 @@ a { color: inherit; }
     applyTheme();
     const ios = /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
     const standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+    document.documentElement.classList.toggle('standalone', !!standalone);
     if (ios && !standalone && prefs.get('iosHint', '1') === '1') $('ios-hint').hidden = false;
     await loadLibrary();
     await route();
