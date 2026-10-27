@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Читалка</title>
+<meta name="description" content="Читалка колод Anki">
+<meta name="theme-color" content="#faf9f5" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Читалка">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<script>
+  (function () {
+    var m = 'auto';
+    try { m = localStorage.getItem('reader.theme') || 'auto'; } catch (e) {}
+    var dark = m === 'dark' || (m === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+    if (dark) document.documentElement.setAttribute('data-theme', 'black');
+  })();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<div id="app" data-view="lib">
+
+  <aside class="pane lib" aria-label="Колоды">
+    <header class="lib-head">
+      <span class="wordmark">Читалка</span>
+      <button class="icon-btn" id="btn-settings" aria-label="Настройки">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+      </button>
+    </header>
+    <div class="lib-scroll">
+      <h1 class="lib-title">Колоды</h1>
+      <p class="lib-sub eyebrow" id="lib-sub"></p>
+      <div class="hint-card" id="ios-hint" hidden>
+        <p>Добавьте читалку на экран «Домой». Если сайт не открывать неделю, Safari может стереть загруженные колоды. С экрана «Домой» они хранятся надёжно, а читалка открывается на весь экран.</p>
+        <button class="icon-btn" id="ios-hint-close" aria-label="Скрыть подсказку"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+        <p class="how">Кнопка «Поделиться», затем «На экран „Домой“».</p>
+      </div>
+      <ul class="sets" id="sets"></ul>
+      <p class="empty-lib" id="empty-lib" hidden>Пока пусто. Добавьте файл .apkg, выгруженный из Anki.</p>
+      <div class="add-zone">
+        <button class="btn btn-primary" id="btn-add">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Добавить колоду
+        </button>
+        <p>Файлы .apkg и .colpkg из Anki. Колоды хранятся только на этом устройстве, на сервер ничего не загружается.<span class="only-desktop"> Файл можно просто перетащить в окно.</span></p>
+        <input type="file" id="file-input" multiple hidden>
+      </div>
+      <div class="lib-foot">
+        <button class="text-link" id="btn-restore-sample" hidden>Вернуть пример</button>
+      </div>
+    </div>
+  </aside>
+
+  <section class="pane placeholder" aria-hidden="true">
+    <div>
+      <h2>Откройте колоду слева</h2>
+      <p>Или перетащите сюда файл .apkg из Anki.</p>
+    </div>
+  </section>
+
+  <main class="pane reader" aria-label="Чтение">
+    <header class="r-head">
+      <button class="icon-btn only-mobile" id="btn-back" aria-label="К колодам">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <div class="r-title">
+        <span class="eyebrow" id="r-sub"></span>
+        <strong id="r-title"></strong>
+      </div>
+      <div class="seg" role="group" aria-label="Вид">
+        <button id="mode-cards" aria-pressed="true" aria-label="Карточки">
+          <svg viewBox="0 0 24 24"><rect x="4" y="6" width="16" height="12" rx="2"/></svg><span class="lbl">Карточки</span>
+        </button>
+        <button id="mode-list" aria-pressed="false" aria-label="Список">
+          <svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"/></svg><span class="lbl">Список</span>
+        </button>
+      </div>
+      <button class="icon-btn" id="btn-menu" aria-label="Параметры колоды">
+        <svg viewBox="0 0 24 24"><circle cx="5" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="19" cy="12" r="1.2"/></svg>
+      </button>
+    </header>
+    <div class="r-progress"><i id="r-progress"></i></div>
+    <div class="r-body">
+      <div class="stage" id="stage">
+        <div class="stage-inner" id="stage-inner"></div>
+      </div>
+      <div class="list" id="list" hidden>
+        <div class="list-search"><input type="search" id="list-q" placeholder="Поиск по колоде" autocomplete="off" enterkeyhint="search"></div>
+        <div class="list-count eyebrow" id="list-count"></div>
+        <div id="list-rows"></div>
+        <div class="list-more" id="list-more"></div>
+      </div>
+    </div>
+    <footer class="r-foot" id="r-foot">
+      <button class="icon-btn outlined" id="btn-prev" aria-label="Предыдущая">
+        <svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg>
+      </button>
+      <div class="mid" id="foot-mid"></div>
+      <button class="icon-btn outlined" id="btn-next" aria-label="Следующая">
+        <svg viewBox="0 0 24 24"><path d="M9 5l7 7-7 7"/></svg>
+      </button>
+    </footer>
+    <div class="keys eyebrow" id="keys">Пробел — ответ &nbsp; ← → — листать &nbsp; 1 — повторить &nbsp; 2 — знаю</div>
+  </main>
+</div>
+
+<dialog class="sheet" id="sheet">
+  <div class="sheet-head">
+    <h3 id="sheet-title"></h3>
+    <button class="icon-btn" id="sheet-close" aria-label="Закрыть"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+  </div>
+  <div class="sheet-body" id="sheet-body"></div>
+</dialog>
+
+<div class="drop" id="drop" hidden><div>Отпустите, чтобы добавить</div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" defer></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" defer></script>
+<script src="/anki.js" defer></script>
+<script src="/sample-deck.js" defer></script>
+<script src="/app.js" defer></script>
+</body>
+</html>
