@@ -40,6 +40,12 @@ Vercel-команда пользователя: `za` (slug `za-9ad6`). Отде�
 - Импорт: `collection.anki21b` (zstd, схема 18: таблицы notetypes/fields/templates/decks с protobuf-конфигами) → `anki21` → `anki2`. Медиа-карта бывает JSON (legacy) или zstd+protobuf (новый). Сохраняются только упомянутые в полях/шаблонах/CSS файлы и файлы на `_`.
 - Настройки в localStorage (`reader.theme`, `reader.cardStyle`, `reader.last`, `reader.sampleHidden`, `reader.iosHint`).
 
+## Функции поверх чтения
+- **Статистика** (меню колоды → «Статистика»): доля «знаю / повторить» по колоде и подколодам, тап по строке открывает подколоду.
+- **Поиск по всем колодам** (поле в библиотеке): тексты собираются лениво в `gsData` (одна запись на заметку), результаты рендерятся без медиа (blob-URL принадлежат открытой колоде). Переход к карточке через `jumpTo()` / `applyJump()`: сбрасывает подколоду и фильтр.
+- **Экзамен** (меню колоды → «Экзамен»): `current.exam = {list, results, savedPos, deadline, review}` живёт только в памяти; `saveState()` при экзамене пишет `savedPos`, чтобы позиция чтения не портилась. Отметки из экзамена пишутся и в `state.marks`. Настройки в `reader.examN`, `reader.examT`.
+- **Импорт .txt/.csv/.tsv** («Заметки в виде текста» из Anki или из скилла anki-physmath): `parseNotesText()` + `buildTextCollection()` в `anki.js`. Заголовки `#separator`, `#html`, `#deck`, `#notetype`, `#… column:N`; cloze определяется по `{{cN::`. Файлы с одинаковым `#deck`, выбранные вместе, сливаются в одну колоду.
+
 ## Рендер карточек
 - Каждая сторона рендерится в shadow root: katex.css, BASE_CSS, CSS колоды (url() → blob), затем IVORY_CSS (override `.card` шрифта/цвета/фона через `!important`) или ORIGINAL_CSS («Как в Anki»).
 - Если в `afmt` есть `<hr id=answer>`, ответ (часть после hr) выезжает снизу **чёрной полосой во всю ширину** (black band из дизайн-системы, `data-theme="black"`). Иначе (cloze и т. п.) лицо меняется на полный ответ.
