@@ -44,7 +44,8 @@
 html[data-theme="black"] { --band: #1a1a19; }
 
 *, *::before, *::after { box-sizing: border-box; }
-html, body { height: 100%; }
+/* app shell, not a page: the document itself never scrolls or bounces, only inner panes do */
+html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
 body {
   margin: 0;
   background: var(--canvas);
@@ -56,7 +57,9 @@ body {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
   -webkit-tap-highlight-color: transparent;
-  overscroll-behavior: none;
+  position: fixed; inset: 0;
+  touch-action: manipulation;
+  -webkit-touch-callout: none;
 }
 button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
@@ -110,8 +113,7 @@ a { color: inherit; }
 
 /* ---------- app shell ---------- */
 #app {
-  height: 100vh;
-  height: 100dvh;
+  height: 100%;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   padding-left: var(--sal);
@@ -375,3 +377,7 @@ dialog.sheet::backdrop { background: rgba(20, 20, 19, .45); }
 .stat-row .bar b { position: absolute; top: 0; bottom: 0; background: var(--text-tertiary); }
 .stat-row .eyebrow { display: block; }
 .stat-total { font-size: 40px; line-height: 1.1; margin: 0 0 4px; }
+
+/* app feel: no text selection or long-press menus on chrome; card text stays selectable */
+.lib-head, .r-head, .r-foot, .r-progress, .set-row, .seg, .sheet-head, .meta-row, .list-count, .keys { -webkit-user-select: none; user-select: none; }
+.lib-scroll, .list, .sheet-body { overscroll-behavior: contain; }

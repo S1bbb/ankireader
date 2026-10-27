@@ -1235,6 +1235,10 @@ a { color: inherit; }
   }
   window.addEventListener('hashchange', route);
 
+  // no pinch / double-tap page zoom: it is an app shell, not a document
+  document.addEventListener('gesturestart', (e) => e.preventDefault());
+  document.addEventListener('dblclick', (e) => e.preventDefault(), { passive: false });
+
   // ---------- boot ----------
   async function boot() {
     applyTheme();
