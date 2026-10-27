@@ -263,6 +263,94 @@
     return stripHtml(note.f.join(' ')).replace(/\{\{c\d+::|\}\}/g, '').toLowerCase();
   }
 
+  // ---------- Anki "Notes in Plain Text" (.txt/.csv) ----------
+  const SEPS = { tab: '\t', comma: ',', semicolon: ';', pipe: '|', colon: ':', space: ' ' };
+  function parseNotesText(text) {
+    text = String(text).replace(/^﻿/, '').replace(/\r\n?/g, '\n');
+    const hdr = {};
+    let i = 0;
+    while (text[i] === '#') {
+      const e = text.indexOf('\n', i);
+      const line = text.slice(i + 1, e < 0 ? text.length : e);
+      const k = line.indexOf(':');
+      if (k > 0) hdr[line.slice(0, k).trim().toLowerCase()] = line.slice(k + 1).trim();
+      i = e < 0 ? text.length : e + 1;
+    }
+    const body = text.slice(i);
+    let sep = hdr.separator;
+    sep = sep ? (SEPS[sep.toLowerCase()] || sep[0]) : body.includes('\t') ? '\t' : body.includes(';') ? ';' : ',';
+    // CSV-style: quoted cells may contain separators, newlines and "" escapes
+    const rows = [];
+    let row = [], cell = '', q = false, quoted = false;
+    for (let j = 0; j <= body.length; j++) {
+      const ch = body[j];
+      if (q) {
+        if (ch === '"' && body[j + 1] === '"') { cell += '"'; j++; }
+        else if (ch === '"') q = false;
+        else if (ch === undefined) { row.push(cell); rows.push(row); }
+        else cell += ch;
+        continue;
+      }
+      if (ch === '"' && !cell) { q = true; quoted = true; }
+      else if (ch === sep) { row.push(cell); cell = ''; quoted = false; }
+      else if (ch === '\n' || ch === undefined) {
+        row.push(cell);
+        if (row.length > 1 || row[0].trim() || quoted) rows.push(row);
+        row = []; cell = ''; quoted = false;
+      } else cell += ch;
+    }
+    const col = (name) => { const n = parseInt(hdr[name + ' column'], 10); return n > 0 ? n - 1 : -1; };
+    const meta = { guid: col('guid'), tags: col('tags'), deck: col('deck'), notetype: col('notetype') };
+    const metaCols = new Set(Object.values(meta).filter((n) => n >= 0));
+    const html = String(hdr.html || 'true').toLowerCase() !== 'false';
+    const fix = (s) => html ? s : s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[c]).replace(/\n/g, '<br>');
+    const notes = rows.map((r) => ({
+      f: r.filter((_, k) => !metaCols.has(k)).map(fix),
+      guid: meta.guid >= 0 ? r[meta.guid] || '' : '',
+      tags: meta.tags >= 0 ? (r[meta.tags] || '').trim() : (hdr.tags || ''),
+      deck: (meta.deck >= 0 && r[meta.deck]) || hdr.deck || '',
+      notetype: (meta.notetype >= 0 && r[meta.notetype]) || hdr.notetype || '',
+    })).filter((n) => n.f.some((x) => x.trim()));
+    return { deck: hdr.deck || '', notes };
+  }
+  // several parsed files → one collection in the same shape as parseCollection()
+  function buildTextCollection(parsed, fallbackDeck) {
+    const models = {
+      b: { name: 'Basic', type: 0, css: '', flds: [{ ord: 0, name: 'Front' }, { ord: 1, name: 'Back' }],
+        tmpls: [{ ord: 0, name: 'Card 1', qfmt: '{{Front}}', afmt: '{{FrontSide}}<hr id=answer>{{Back}}' }] },
+      r: { name: 'Basic (and reversed card)', type: 0, css: '', flds: [{ ord: 0, name: 'Front' }, { ord: 1, name: 'Back' }],
+        tmpls: [{ ord: 0, name: 'Card 1', qfmt: '{{Front}}', afmt: '{{FrontSide}}<hr id=answer>{{Back}}' },
+          { ord: 1, name: 'Card 2', qfmt: '{{Back}}', afmt: '{{FrontSide}}<hr id=answer>{{Front}}' }] },
+      c: { name: 'Cloze', type: 1, css: '', flds: [{ ord: 0, name: 'Text' }, { ord: 1, name: 'Back Extra' }],
+        tmpls: [{ ord: 0, name: 'Cloze', qfmt: '{{cloze:Text}}', afmt: '{{cloze:Text}}<br>{{Back Extra}}' }] },
+    };
+    const notes = {}, cards = [], decks = {}, deckIds = {}, seen = new Set();
+    let k = 0;
+    for (const p of parsed) {
+      for (const n of p.notes) {
+        if (n.guid && seen.has(n.guid)) continue;
+        if (n.guid) seen.add(n.guid);
+        const name = n.deck || fallbackDeck;
+        const did = deckIds[name] || (deckIds[name] = 't' + Object.keys(deckIds).length);
+        const nid = 'n' + k++;
+        const cl = /\{\{c(\d+)::/g;
+        const isCloze = /cloze|пропуск/i.test(n.notetype) || cl.test(n.f[0]);
+        const m = isCloze ? 'c' : /revers|обратн/i.test(n.notetype) ? 'r' : 'b';
+        const f = [n.f[0] || '', n.f.slice(1).filter((x) => x.trim()).join('<br>')];
+        notes[nid] = { m, f, t: n.tags };
+        let ords = [0];
+        if (isCloze) {
+          const s = new Set();
+          for (const mm of f[0].matchAll(/\{\{c(\d+)::/g)) s.add(Number(mm[1]) - 1);
+          if (s.size) ords = [...s].sort((a, b) => a - b);
+        } else if (m === 'r') ords = [0, 1];
+        for (const o of ords) cards.push([nid + '_' + o, nid, did, o]);
+        decks[did] = { name, count: (decks[did] ? decks[did].count : 0) + ords.length };
+      }
+    }
+    return { models, notes, cards, decks };
+  }
+
   function mimeFor(name) {
     const ext = (String(name).split('.').pop() || '').toLowerCase();
     return ({
@@ -272,7 +360,7 @@
     })[ext] || 'application/octet-stream';
   }
 
-  const api = { pbRead, pbStr, pbNum, isZstd, parseCollection, referencedMedia, renderCard, renderCloze, renderTemplate, stripHtml, searchText, mimeFor, decodeName };
+  const api = { pbRead, pbStr, pbNum, isZstd, parseCollection, parseNotesText, buildTextCollection, referencedMedia, renderCard, renderCloze, renderTemplate, stripHtml, searchText, mimeFor, decodeName };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.AnkiCore = api;
 })(typeof globalThis !== 'undefined' ? globalThis : this);

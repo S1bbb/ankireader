@@ -43,6 +43,12 @@
     <div class="lib-scroll">
       <h1 class="lib-title">Колоды</h1>
       <p class="lib-sub eyebrow" id="lib-sub"></p>
+      <div class="lib-search"><input type="search" id="lib-q" placeholder="Поиск по всем колодам" autocomplete="off" enterkeyhint="search"></div>
+      <div class="lib-results" id="lib-results" hidden>
+        <div class="list-count eyebrow" id="lib-count"></div>
+        <div id="lib-rows"></div>
+        <div class="list-more" id="lib-more"></div>
+      </div>
       <div class="hint-card" id="ios-hint" hidden>
         <p>Добавьте читалку на экран «Домой». Если сайт не открывать неделю, Safari может стереть загруженные колоды. С экрана «Домой» они хранятся надёжно, а читалка открывается на весь экран.</p>
         <button class="icon-btn" id="ios-hint-close" aria-label="Скрыть подсказку"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -54,7 +60,7 @@
         <button class="btn btn-primary" id="btn-add">
           <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>Добавить колоду
         </button>
-        <p>Файлы .apkg и .colpkg из Anki. Колоды хранятся только на этом устройстве, на сервер ничего не загружается.<span class="only-desktop"> Файл можно просто перетащить в окно.</span></p>
+        <p>Файлы .apkg, .colpkg и .txt («Заметки в виде текста») из Anki. Колоды хранятся только на этом устройстве, на сервер ничего не загружается.<span class="only-desktop"> Файл можно просто перетащить в окно.</span></p>
         <input type="file" id="file-input" multiple hidden>
       </div>
       <div class="lib-foot">

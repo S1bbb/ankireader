@@ -221,6 +221,7 @@ a { color: inherit; }
 /* card mode */
 .stage { position: absolute; inset: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; touch-action: pan-y; overscroll-behavior: contain; }
 .stage-inner { min-height: 100%; display: flex; flex-direction: column; will-change: transform; }
+.meta-row > .eyebrow:last-child { white-space: nowrap; flex: none; }
 .meta-row {
   display: flex; justify-content: space-between; align-items: center; gap: 12px;
   padding: 16px 24px 0;
@@ -351,3 +352,26 @@ dialog.sheet::backdrop { background: rgba(20, 20, 19, .45); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
 }
+
+/* global search */
+.lib-search { padding: 0 16px 16px; }
+.lib-search input {
+  width: 100%; height: 44px; border-radius: var(--r-sm);
+  border: 1px solid var(--text-secondary); background: var(--canvas);
+  padding: 0 16px; font-family: var(--font-sans); font-size: 16px;
+}
+.lib-search input::placeholder { color: var(--text-tertiary); }
+.lib.searching .sets, .lib.searching .empty-lib, .lib.searching .add-zone, .lib.searching .lib-foot, .lib.searching .hint-card { display: none; }
+.lib-results { border-top: 1px solid var(--hairline); }
+.lib-results .list-row .eyebrow { display: block; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* stats */
+.stat-row { display: block; width: 100%; text-align: left; background: none; border: 0; padding: 12px; margin: 0 -12px; width: calc(100% + 24px); border-radius: var(--r-sm); cursor: pointer; }
+@media (hover: hover) { .stat-row:hover { background: var(--surface-2); } }
+.stat-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 18px; }
+.stat-top .grow { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.stat-top .count { font-family: var(--font-mono); font-size: 13px; color: var(--text-muted); white-space: nowrap; }
+.stat-row .bar { margin: 10px 0 8px; height: 4px; border-radius: 2px; }
+.stat-row .bar b { position: absolute; top: 0; bottom: 0; background: var(--text-tertiary); }
+.stat-row .eyebrow { display: block; }
+.stat-total { font-size: 40px; line-height: 1.1; margin: 0 0 4px; }

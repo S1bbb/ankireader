@@ -107,6 +107,7 @@
     const states = {};
     await Promise.all(library.map(async (m) => { states[m.id] = await getState(m.id); }));
     renderLibrary(states);
+    if ($('lib-q').value.trim()) globalSearch();
   }
   function renderLibrary(states) {
     const ul = $('sets');
@@ -138,7 +139,9 @@
   let saveTimer;
   function saveState() {
     if (!current) return;
-    const id = current.id, st = current.state;
+    const id = current.id;
+    // during an exam the real reading position is parked in exam.savedPos
+    const st = current.exam ? Object.assign({}, current.state, { pos: current.exam.savedPos }) : current.state;
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => idb.put('state', id, st).catch(console.warn), 250);
   }
@@ -320,7 +323,7 @@ a { color: inherit; }
   async function openSet(id, mode) {
     if (current && current.id === id) {
       setView('reader');
-      setMode(mode || current.state.mode);
+      setMode(applyJump() ? 'cards' : mode || current.state.mode);
       return;
     }
     let meta = library.find((m) => m.id === id);
@@ -330,6 +333,7 @@ a { color: inherit; }
       try { col = await idb.get('data', id); } catch (e) { col = null; }
     }
     if (!col || !meta) { location.hash = '#/'; return; }
+    stopExamTimer();
     clearMedia();
     current = { id, meta, col, state: await getState(id), flipped: false };
     const tops = new Set(Object.values(col.decks).map((d) => d.name.split('::')[0]));
@@ -340,7 +344,28 @@ a { color: inherit; }
     rebuildList();
     setView('reader');
     document.querySelectorAll('.set-row').forEach((a) => a.setAttribute('aria-current', a.getAttribute('href') === '#/s/' + encodeURIComponent(id) ? 'true' : 'false'));
-    setMode(mode || current.state.mode || 'cards', true);
+    setMode(applyJump() ? 'cards' : mode || current.state.mode || 'cards', true);
+  }
+
+  // jump to a specific card (from global search): show the whole deck so the card is in the list
+  let pendingJump = null;
+  function applyJump() {
+    if (!pendingJump || pendingJump.id !== current.id) return false;
+    const i = pendingJump.i;
+    pendingJump = null;
+    if (current.exam) endExam(true);
+    const s = current.state;
+    s.deck = 'all'; s.filter = 'all';
+    rebuildList();
+    s.pos = Math.max(0, current.list.indexOf(i));
+    saveState();
+    return true;
+  }
+  function jumpTo(id, i) {
+    pendingJump = { id, i };
+    if (document.activeElement && document.activeElement.blur) document.activeElement.blur();
+    const want = '#/s/' + encodeURIComponent(id);
+    if (location.hash !== want) location.hash = want; else route();
   }
 
   function deckLabel(name) {
@@ -350,6 +375,7 @@ a { color: inherit; }
   }
   function rebuildList() {
     const { col, state } = current;
+    if (current.exam) { current.list = current.exam.list; $('r-sub').textContent = examSub(); return; }
     let idx = [];
     for (let i = 0; i < col.cards.length; i++) {
       const c = col.cards[i];
@@ -422,7 +448,9 @@ a { color: inherit; }
     await fillFace(frag.querySelector('#face-q'), r.q, { setId: current.id, css: r.css, ord: r.ord, size: current.qSize });
     if (token !== renderToken) return;
     const stage = $('stage');
+    current.swapping = true;
     await swapIn(inner, frag, dir);
+    current.swapping = false;
     stage.scrollTop = 0;
     renderFoot('front');
     saveState();
@@ -449,7 +477,7 @@ a { color: inherit; }
   }
 
   async function flip() {
-    if (!current || current.flipped || !current.rendered) return;
+    if (!current || current.flipped || !current.rendered || current.swapping) return;
     if (current.state.pos >= current.list.length) return;
     const r = current.rendered;
     current.flipped = true;
@@ -472,6 +500,7 @@ a { color: inherit; }
   }
 
   function renderEnd() {
+    if (current.exam) { renderExamEnd(); return; }
     const { state, col } = current;
     let know = 0, again = 0;
     for (const i of current.list) { const m = state.marks[col.cards[i][0]]; if (m === 2) know++; else if (m === 1) again++; }
@@ -518,8 +547,128 @@ a { color: inherit; }
     if (!current || !current.flipped) return;
     const card = current.col.cards[current.list[current.state.pos]];
     current.state.marks[card[0]] = v;
+    if (current.exam) current.exam.results[card[0]] = v;
     saveState();
     go(1);
+  }
+
+  // ---------- exam ----------
+  let examTimer = null;
+  const mmss = (ms) => { const s = Math.max(0, Math.ceil(ms / 1000)); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  function examSub() {
+    const ex = current.exam;
+    return (ex.review ? 'Разбор ошибок' : 'Экзамен') + (ex.deadline ? ', осталось ' + mmss(ex.deadline - Date.now()) : '');
+  }
+  function stopExamTimer() { clearInterval(examTimer); examTimer = null; }
+  function startExam(n, minutes) {
+    const pool = current.list.slice();
+    const list = seededShuffle(pool, (Date.now() & 0xffffff) | 1).slice(0, n ? Math.min(n, pool.length) : pool.length);
+    current.exam = { list, results: {}, savedPos: current.state.pos, started: Date.now(), deadline: minutes ? Date.now() + minutes * 60000 : 0, review: false, timeUp: false };
+    current.state.pos = 0;
+    closeSheet();
+    rebuildList();
+    setMode('cards');
+    stopExamTimer();
+    if (current.exam.deadline) examTimer = setInterval(tickExam, 1000);
+  }
+  function tickExam() {
+    const ex = current && current.exam;
+    if (!ex || !ex.deadline) { stopExamTimer(); return; }
+    $('r-sub').textContent = examSub();
+    if (Date.now() < ex.deadline) return;
+    stopExamTimer();
+    ex.deadline = 0; ex.timeUp = true; ex.finished = Date.now();
+    closeSheet();
+    current.state.pos = ex.list.length;
+    $('r-sub').textContent = examSub();
+    if (current.state.mode !== 'cards') setMode('cards'); else showCard(0);
+  }
+  function endExam(silent) {
+    stopExamTimer();
+    current.state.pos = current.exam.savedPos;
+    current.exam = null;
+    saveState();
+    if (silent) return;
+    rebuildList();
+    showCard(0);
+  }
+  function reviewExam() {
+    const ex = current.exam;
+    const list = ex.list.filter((i) => ex.results[current.col.cards[i][0]] !== 2);
+    Object.assign(ex, { list, results: {}, review: true, deadline: 0, timeUp: false, started: Date.now(), finished: 0 });
+    stopExamTimer();
+    current.state.pos = 0;
+    rebuildList();
+    showCard(0);
+  }
+  function renderExamEnd() {
+    const ex = current.exam;
+    const n = ex.list.length;
+    let know = 0, again = 0;
+    for (const i of ex.list) { const m = ex.results[current.col.cards[i][0]]; if (m === 2) know++; else if (m === 1) again++; }
+    const skipped = n - know - again;
+    if (!ex.finished) ex.finished = Date.now();
+    stopExamTimer();
+    ex.deadline = 0;
+    $('r-sub').textContent = examSub();
+    const title = ex.review ? 'Разбор закончен' : ex.timeUp ? 'Время вышло' : 'Экзамен закончен';
+    const pct = n ? Math.round((know / n) * 100) : 0;
+    const inner = $('stage-inner');
+    inner.classList.remove('flipped');
+    inner.innerHTML = '<div class="end-card"><div><span class="eyebrow">' + (ex.review ? 'Ошибки' : 'Результат') + '</span>' +
+      '<h2>' + title + '</h2><p>Знаю ' + fmt.format(know) + ' из ' + fmt.format(n) + ' (' + pct + '%). Повторить: ' + fmt.format(again) +
+      (skipped ? ', не успел: ' + fmt.format(skipped) : '') + '. Время: ' + mmss(ex.finished - ex.started) + '.</p>' +
+      '<div class="btns">' + (again + skipped ? '<button class="btn btn-primary" data-act="exam-review">Разобрать ошибки</button>' : '') +
+      '<button class="btn ' + (again + skipped ? 'btn-secondary' : 'btn-primary') + '" data-act="exam-exit">Завершить</button></div></div></div>';
+    current.rendered = null;
+    updateProgress();
+    renderFoot('end');
+  }
+  function openExamSetup() {
+    const n = prefs.get('examN', '20'), t = prefs.get('examT', '0');
+    const pool = current.list.length;
+    const html =
+      '<div class="sheet-sec"><p class="danger-note" style="margin:0">Случайные карточки из текущего выбора: ' + esc($('r-sub').textContent.toLowerCase()) + ', ' + cardsWord(pool) + '. Отметки «знаю / повторить» сохранятся в колоде.</p></div>' +
+      '<div class="sheet-sec"><span class="eyebrow">Сколько карточек</span>' + seg('exam-n', [['10', '10'], ['20', '20'], ['30', '30'], ['0', 'Все']], n) + '</div>' +
+      '<div class="sheet-sec"><span class="eyebrow">Время</span>' + seg('exam-t', [['0', 'Без таймера'], ['10', '10 мин'], ['20', '20 мин'], ['30', '30 мин']], t) + '</div>' +
+      '<div class="sheet-sec"><div class="sheet-actions">' + (pool ? '<button class="btn btn-primary" data-act="exam-start">Начать</button>' : '<p class="danger-note">Здесь нет карточек. Выберите другую подколоду или фильтр.</p>') +
+      '<button class="btn btn-tertiary" data-act="back">Назад</button></div></div>';
+    openSheet('Экзамен', html, (act, el) => {
+      if (act === 'exam-n') { prefs.set('examN', el.dataset.v); openExamSetup(); }
+      else if (act === 'exam-t') { prefs.set('examT', el.dataset.v); openExamSetup(); }
+      else if (act === 'exam-start') startExam(Number(prefs.get('examN', '20')), Number(prefs.get('examT', '0')));
+      else if (act === 'back') openMenu();
+    });
+  }
+
+  // ---------- stats ----------
+  function openStats() {
+    const { col, state } = current;
+    const blank = () => ({ n: 0, know: 0, again: 0 });
+    const tot = blank(), per = {};
+    for (const c of col.cards) {
+      const p = per[c[2]] || (per[c[2]] = blank());
+      const m = state.marks[c[0]];
+      for (const o of [p, tot]) { o.n++; if (m === 2) o.know++; else if (m === 1) o.again++; }
+    }
+    const pc = (a, n) => (n ? (a / n) * 100 : 0);
+    const row = (did, label, o) =>
+      '<button class="stat-row" data-act="deck" data-v="' + esc(did) + '"><div class="stat-top"><span class="grow">' + esc(label) + '</span><span class="count">' + Math.round(pc(o.know, o.n)) + '%</span></div>' +
+      '<div class="bar"><i style="width:' + pc(o.know, o.n) + '%"></i><b style="left:' + pc(o.know, o.n) + '%;width:' + pc(o.again, o.n) + '%"></b></div>' +
+      '<span class="eyebrow">Знаю ' + fmt.format(o.know) + ' · повторить ' + fmt.format(o.again) + ' · без отметки ' + fmt.format(o.n - o.know - o.again) + '</span></button>';
+    const decks = Object.entries(per).filter(([id]) => col.decks[id]).sort((a, b) => col.decks[a[0]].name.localeCompare(col.decks[b[0]].name, 'ru'));
+    let html = '<div class="sheet-sec"><p class="stat-total">' + Math.round(pc(tot.know, tot.n)) + '%</p><span class="eyebrow" style="margin:0">Выучено: ' + fmt.format(tot.know) + ' из ' + cardsWord(tot.n) + '</span></div>';
+    html += '<div class="sheet-sec"><div class="opt-list">' + row('all', 'Все подколоды', tot) + '</div></div>';
+    if (decks.length > 1) html += '<div class="sheet-sec"><span class="eyebrow">По подколодам</span><div class="opt-list">' + decks.map(([id, o]) => row(id, deckLabel(col.decks[id].name), o)).join('') + '</div></div>';
+    openSheet('Статистика', html, (act, el) => {
+      if (act !== 'deck') return;
+      if (current.exam) endExam(true);
+      Object.assign(current.state, { deck: el.dataset.v, pos: 0 });
+      saveState();
+      rebuildList();
+      closeSheet();
+      if (current.state.mode === 'cards') showCard(0); else renderList(true);
+    });
   }
 
   // list mode
@@ -571,11 +720,82 @@ a { color: inherit; }
 .la .cloze, .card .cloze { color: var(--ink) !important; }
 `;
 
+  // ---------- search across all decks ----------
+  const gsData = new Map(); // set id -> { col, texts }, filled on first search
+  let gsToken = 0, gsHits = [], gsShown = 0;
+  async function gsLoad(m) {
+    if (gsData.has(m.id)) return gsData.get(m.id);
+    let col = null;
+    if (m.id === SAMPLE_ID) col = window.SAMPLE_DECK && window.SAMPLE_DECK.col;
+    else { try { col = await idb.get('data', m.id); } catch (e) { console.warn(e); } }
+    // one hit per note: cards of the same note share the text
+    const seen = new Set(), texts = [];
+    if (col) col.cards.forEach((c, i) => { if (!seen.has(c[1])) { seen.add(c[1]); texts.push([i, A.searchText(col, c)]); } });
+    const d = { col, texts };
+    gsData.set(m.id, d);
+    return d;
+  }
+  async function globalSearch() {
+    const q = $('lib-q').value.trim().toLowerCase();
+    const tok = ++gsToken;
+    const lib = document.querySelector('.lib');
+    lib.classList.toggle('searching', !!q);
+    $('lib-results').hidden = !q;
+    if (!q) return;
+    const hits = [];
+    for (const m of library) {
+      const d = await gsLoad(m);
+      if (tok !== gsToken) return;
+      if (!d.col) continue;
+      for (const [i, t] of d.texts) if (t.includes(q)) hits.push({ m, col: d.col, i });
+    }
+    gsHits = hits; gsShown = 0;
+    $('lib-rows').innerHTML = '';
+    const nSets = new Set(hits.map((h) => h.m.id)).size;
+    $('lib-count').textContent = hits.length ? 'Найдено: ' + cardsWord(hits.length) + (library.length > 1 ? ' в ' + nSets + ' ' + plural(nSets, 'колоде', 'колодах', 'колодах') : '') : '';
+    renderGs();
+  }
+  function renderGs() {
+    const end = Math.min(gsHits.length, gsShown + PAGE);
+    const rows = $('lib-rows');
+    for (let k = gsShown; k < end; k++) {
+      const { m, col, i } = gsHits[k];
+      const card = col.cards[i];
+      const r = A.renderCard(col, card);
+      const row = document.createElement('div');
+      row.className = 'list-row'; row.tabIndex = 0; row.setAttribute('role', 'button');
+      row.dataset.set = m.id; row.dataset.idx = i;
+      const deck = col.decks[card[2]] ? col.decks[card[2]].name.split('::') : [];
+      if (deck.length > 1) deck.shift();
+      row.innerHTML = '<span class="eyebrow">' + esc(m.title + (deck.length && deck.join(' / ') !== m.title ? ' · ' + deck.join(' / ') : '')) + '</span>';
+      const host = document.createElement('div');
+      host.className = 'face';
+      row.appendChild(host);
+      rows.appendChild(row);
+      // text only: media blob URLs belong to the open deck and get revoked on switch
+      const strip = (s) => String(s).replace(/<img[^>]*>/gi, '').replace(/<(audio|video)[\s\S]*?<\/\1>/gi, '').replace(/<span class="snd"[^>]*><\/span>/g, '');
+      const html = r.isCloze ? strip(r.a) : '<div class="lq">' + strip(r.q) + '</div><div class="la">' + strip(r.aOnly != null ? r.aOnly : r.a) + '</div>';
+      fillFace(host, html, { setId: m.id, css: (r.css || '') + LIST_CSS, ord: r.ord, size: 's' });
+    }
+    gsShown = end;
+    $('lib-more').textContent = gsShown < gsHits.length ? 'Ещё ' + cardsWord(gsHits.length - gsShown) : (gsHits.length ? '' : 'Ничего не найдено');
+  }
+
   // ---------- import ----------
   async function importFiles(files) {
     files = [...files].filter(Boolean);
     if (!files.length) return;
     let lastId = null;
+    // plain-text exports: files with the same #deck header become one set
+    const texts = files.filter(isTextFile);
+    files = files.filter((f) => !isTextFile(f));
+    if (texts.length) {
+      try { lastId = await importTextFiles(texts); } catch (e) {
+        console.error(e);
+        showError(texts.map((f) => f.name).join(', '), errorText(e));
+        return;
+      }
+    }
     for (let fi = 0; fi < files.length; fi++) {
       const file = files[fi];
       const prefix = files.length > 1 ? (fi + 1) + ' из ' + files.length + ': ' : '';
@@ -681,7 +901,34 @@ a { color: inherit; }
     return id;
   }
 
+  const isTextFile = (f) => /\.(txt|csv|tsv)$/i.test(f.name);
+  async function importTextFiles(files) {
+    showProgress(files.length > 1 ? files.length + ' ' + plural(files.length, 'файл', 'файла', 'файлов') : files[0].name, 'Читаю текст', 0.3);
+    const groups = new Map();
+    for (const f of files) {
+      const p = A.parseNotesText(await f.text());
+      const key = p.deck || f.name;
+      if (!groups.has(key)) groups.set(key, { files: [], parsed: [] });
+      groups.get(key).files.push(f); groups.get(key).parsed.push(p);
+    }
+    let lastId = null, k = 0;
+    for (const g of groups.values()) {
+      const name = g.files[0].name.replace(/\.(txt|csv|tsv)$/i, '').replace(/[_]+/g, ' ').trim();
+      const col = A.buildTextCollection(g.parsed, name);
+      if (!col.cards.length) { const er = new Error('EMPTY'); er.code = 'EMPTY'; throw er; }
+      const deckNames = Object.values(col.decks).map((d) => d.name);
+      const title = deckNames.length === 1 ? deckNames[0].split('::').pop() : name;
+      const id = 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6) + k++;
+      const meta = { id, title, file: g.files.map((f) => f.name).join(', '), added: Date.now(), cards: col.cards.length, notes: Object.keys(col.notes).length, decks: col.decks, media: 0, bytes: 0 };
+      await idb.put('data', id, col);
+      await idb.put('meta', id, meta);
+      lastId = id;
+    }
+    return lastId;
+  }
+
   async function deleteSet(id) {
+    gsData.delete(id);
     if (id === SAMPLE_ID) prefs.set('sampleHidden', '1');
     else {
       await idb.del('meta', id);
@@ -759,6 +1006,17 @@ a { color: inherit; }
     const opt = (act, v, label, count, checked) =>
       '<button class="opt" role="radio" data-act="' + act + '" data-v="' + esc(v) + '" aria-checked="' + checked + '"><span class="grow">' + esc(label) + '</span>' + (count != null ? '<span class="count">' + fmt.format(count) + '</span>' : '') + '</button>';
     let html = '';
+    if (current.exam) {
+      html = '<div class="sheet-sec"><p class="danger-note" style="margin:0">' + esc(examSub()) + ': ' + cardsWord(current.list.length) + '.</p></div>' +
+        '<div class="sheet-sec"><div class="sheet-actions"><button class="btn btn-primary" data-act="exam-exit">Завершить экзамен</button>' +
+        '<button class="btn btn-tertiary" data-act="stats">Статистика</button><button class="btn btn-tertiary" data-act="settings">Настройки</button></div></div>';
+      openSheet(current.meta.title, html, (act) => {
+        if (act === 'exam-exit') { closeSheet(); endExam(); }
+        else if (act === 'stats') openStats();
+        else if (act === 'settings') openSettings();
+      });
+      return;
+    }
     if (decks.length > 1) {
       html += '<div class="sheet-sec"><span class="eyebrow">Подколода</span><div class="opt-list" role="radiogroup">' +
         opt('deck', 'all', 'Все подколоды', col.cards.length, state.deck === 'all') +
@@ -768,6 +1026,8 @@ a { color: inherit; }
       (state.order === 'shuffle' ? '<div style="margin-top:12px"><button class="text-link" data-act="reshuffle">Перемешать заново</button></div>' : '') + '</div>';
     html += '<div class="sheet-sec"><span class="eyebrow">Показывать</span>' + seg('filter', [['all', 'Все'], ['again', 'Повторить' + (nAgain ? ' ' + nAgain : '')], ['unmarked', 'Без отметки']], state.filter) + '</div>';
     html += '<div class="sheet-sec"><div class="sheet-actions">' +
+      '<button class="btn btn-primary" data-act="exam">Экзамен</button>' +
+      '<button class="btn btn-secondary" data-act="stats">Статистика</button>' +
       (marks.length ? '<button class="btn btn-tertiary" data-act="reset">Сбросить отметки</button>' : '') +
       '<button class="btn btn-tertiary" data-act="settings">Настройки</button>' +
       '<button class="btn btn-tertiary" data-act="delete">' + (current.id === SAMPLE_ID ? 'Скрыть пример' : 'Удалить колоду') + '</button></div></div>';
@@ -779,6 +1039,8 @@ a { color: inherit; }
       else if (act === 'filter') { s.filter = el.dataset.v; s.pos = 0; }
       else if (act === 'reset') { s.marks = {}; s.filter = 'all'; s.pos = 0; toast('Отметки сброшены'); }
       else if (act === 'settings') { openSettings(); return; }
+      else if (act === 'stats') { openStats(); return; }
+      else if (act === 'exam') { openExamSetup(); return; }
       else if (act === 'delete') { confirmDelete(); return; }
       else return;
       saveState();
@@ -838,6 +1100,8 @@ a { color: inherit; }
     else if (act === 'mark-know') mark(2);
     else if (act === 'restart') { current.state.pos = 0; showCard(0); }
     else if (act === 'again-only') { current.state.filter = 'again'; current.state.pos = 0; rebuildList(); showCard(0); }
+    else if (act === 'exam-review') reviewExam();
+    else if (act === 'exam-exit') endExam();
     else if (act === 'show-all') { current.state.filter = 'all'; current.state.deck = 'all'; current.state.pos = 0; rebuildList(); showCard(0); }
   });
 
@@ -857,6 +1121,19 @@ a { color: inherit; }
   $('list-rows').addEventListener('keydown', (e) => {
     const row = e.target.closest('.list-row');
     if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openListRow(row); }
+  });
+  $('lib-q').addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(globalSearch, 180); });
+  document.querySelector('.lib-scroll').addEventListener('scroll', (e) => {
+    const l = e.currentTarget;
+    if (!$('lib-results').hidden && l.scrollTop + l.clientHeight > l.scrollHeight - 600 && gsShown < gsHits.length) renderGs();
+  }, { passive: true });
+  $('lib-rows').addEventListener('click', (e) => {
+    const row = e.target.closest('.list-row');
+    if (row) jumpTo(row.dataset.set, Number(row.dataset.idx));
+  });
+  $('lib-rows').addEventListener('keydown', (e) => {
+    const row = e.target.closest('.list-row');
+    if (row && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); jumpTo(row.dataset.set, Number(row.dataset.idx)); }
   });
   function openListRow(row) {
     const i = Number(row.dataset.idx);
